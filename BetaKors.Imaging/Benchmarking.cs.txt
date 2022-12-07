@@ -1,0 +1,131 @@
+using CPUWorleyNoise = BetaKors.Imaging.CPU.WorleyNoise;
+using GPUWorleyNoise = BetaKors.Imaging.GPU.WorleyNoise;
+using BetaKors.Imaging.Core;
+using System.Diagnostics;
+
+int IntInput(string msg)
+{
+    int input;
+
+    do
+    {
+        Console.Write(msg);
+    }
+    while (!int.TryParse(Console.ReadLine()!, out input));
+
+    return input;
+}
+
+string RandomString(int length)
+{
+    const string CHARS = "abcefghijklmnopqrstuvwxyz";
+    Random random = new Random();
+
+    char[] str = new char[length];
+
+    for (int i = 0; i < length; i++) str[i] = CHARS[random.Next(CHARS.Length)];
+
+    return new string(str);
+}
+
+(double[] times, double total, double avg) BenchmarkGenerator(IImageGenerator generator, int iterations)
+{
+    double[] executionTimes = new double[iterations];
+
+    for (int i = 0; i < iterations; i++)
+    {
+        Stopwatch watch = Stopwatch.StartNew();
+        
+        generator.Generate();
+        
+        watch.Stop();
+
+        executionTimes[i] = watch.Elapsed.TotalMilliseconds;
+    }
+
+    double total = executionTimes.Sum();
+
+    return (
+        times: executionTimes, 
+        total: total,
+        avg: total / iterations
+    );
+}
+
+string formatDouble(double ms)
+{
+    return string.Format("{0:0.000}", ms).Replace(',', '.');
+}
+
+string[] formatBenchmark(string name, (double[] times, double total, double avg) info)
+{
+    var (times, total, avg) = info;
+
+    double min = times.Min();
+    double max = times.Length > 1 ? times.Skip(1).Max() : times.Max();
+
+    double avg2 = times.Skip(1).Sum() / times.Skip(1).Count();
+
+    return new[]
+    {
+        $"\n=== {name} Benchmarking ===\n",
+        string.Join("\n", times.Select(time => $"Generating image took {formatDouble(time)}ms.")) + "\n",
+        $"Total: {formatDouble(total)}ms ({formatDouble(total / 1000)}s).",
+        $"Mininum: {formatDouble(min)}ms.",
+        $"Maximum (ignoring first iteration): {formatDouble(max)}ms.",
+        $"Average: {formatDouble(avg)}ms.",
+        $"Average (ignoring first iteration): {formatDouble(avg2)}ms."
+    };
+}
+
+int width          = IntInput("Width: ");
+int height         = IntInput("Height: ");
+int numberOfPoints = IntInput("Number of points: ");
+int iterations     = IntInput("Iterations: ");
+
+Console.WriteLine("Starting to benchmark...");
+
+var CPUGenerator = new CPUWorleyNoise(width, height, numberOfPoints);
+var GPUGenerator = new GPUWorleyNoise(width, height, numberOfPoints);
+
+List<string> lines = new()
+{
+    "========= Benchmarking: CPU vs. GPU in Worley Noise Image Generation =========",
+    $"Image width: {width}",
+    $"Image height: {height}",
+    $"Number of points: {numberOfPoints}",
+    $"Iterations: {iterations}"
+};
+
+lines.AddRange(
+    formatBenchmark("CPU", BenchmarkGenerator(CPUGenerator, iterations))
+);
+
+lines.AddRange(
+    formatBenchmark("GPU", BenchmarkGenerator(GPUGenerator, iterations))
+);
+
+if (!Directory.Exists("benchmarks")) Directory.CreateDirectory("benchmarks");
+
+string path = $"benchmarks/benchmark-{RandomString(5)}.txt";
+string fullPath = Path.GetFullPath(path);
+
+await File.WriteAllLinesAsync(path, lines);
+
+// just doing Process.Start(path) or Process.Start(fullPath) didn't work
+var process = new Process
+{
+    StartInfo = new(fullPath) { UseShellExecute = true }
+};
+
+Console.WriteLine($"Benchmarking finished! The results were put into the file {path}");
+Console.WriteLine("Trying to open results file...");
+
+try
+{
+    process.Start();
+}
+catch
+{
+    Console.WriteLine("The program has tried and failed to open the results file.");
+}
